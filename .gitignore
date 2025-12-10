@@ -1,0 +1,108 @@
+# -------------------------------------------------------------------
+# 1. CŒUR DE L'EXCLUSION : Données, Modèles & Expériences
+# On exclut les répertoires racines qui contiennent tous les artefacts
+# volumineux ou générés. Cette section est la plus critique.
+# -------------------------------------------------------------------
+/data/
+/experiments/
+/datasets/
+/models/
+/runs/
+/logs/
+/jz_sync_logs/
+
+# -- Extensions spécifiques de fichiers de données et modèles (double sécurité)
+*.pt
+*.pth
+*.h5
+*.bin
+*.onnx
+*.safetensors
+*.arrow
+*.csv
+*.tsv
+*.json
+*.jsonl
+*.pkl
+*.pickle
+*.hdf5
+
+
+# -------------------------------------------------------------------
+# 2. Artefacts Python, Poetry & Environnements
+# -------------------------------------------------------------------
+# -- Environnements Virtuels
+.venv/
+venv/
+env/
+ENV/
+conda_envs
+deps
+
+# -- Fichiers de configuration locaux (sécurité)
+.env
+
+# -- Caches, bytecode et fichiers de projets spécifiques
+__pycache__/
+*.py[cod]
+*$py.class
+.spyderproject
+.ropeproject
+.pytest_cache/
+.mypy_cache/
+
+# -- Artefacts de build et de distribution (Poetry)
+/dist/
+/build/
+*.egg-info/
+*.egg
+
+
+# -------------------------------------------------------------------
+# 3. Artefacts HPC (Jean-Zay / Slurm) & Logs
+# -------------------------------------------------------------------
+slurm-*.out
+slurm-*.err
+*.log
+*.output
+*.error
+
+
+# -------------------------------------------------------------------
+# 4. Jupyter Notebooks
+# -------------------------------------------------------------------
+.ipynb_checkpoints
+
+
+# -------------------------------------------------------------------
+# 5. Artefacts OS & Éditeurs
+# -------------------------------------------------------------------
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+# Linux
+*~
+# VSCode
+.vscode/
+# PyCharm / IntelliJ
+.idea/
+
+src.lock
+
+
+# --- Cache Local ---
+# Exclut le cache local des librairies (Hugging Face, etc.)
+/data/.cache/
+/.uv_cache/
+/.poetry_cache/
+/.poetry_config/
+
+LREC_PROJECT_CONTEXT.json
+
+# Fichiers d'environnement locaux - Ne jamais versionner !
+.env
+
+# Fichiers et logs de Weights & Biases
+wandb/
+**/wandb/

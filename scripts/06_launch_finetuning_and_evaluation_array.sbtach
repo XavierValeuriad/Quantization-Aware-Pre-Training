@@ -1,0 +1,153 @@
+#!/bin/bash
+# ===================================================================
+# ✧ SLURM Array: Pipeline v3.0 (Alpha Grouped)
+# ✧ 1 TASK / 1 GPU / 1 (Model x Quant x Dataset x AlphaGroup) combo
+# ===================================================================
+
+# --- ALLOCATION DIRECTIVES ---
+#SBATCH --job-name=qapt_finetuning_and_eval # Job Array Name
+#SBATCH -A XXX
+#SBATCH -C h100
+#SBATCH --partition=gpu_p6
+#SBATCH --qos=qos_gpu_h100-t3          # QoS for long jobs (20h) - Adjust if necessary
+#SBATCH --time=10:00:00                # Max time PER TASK (includes internal alpha loop)
+#SBATCH --hint=nomultithread
+
+# --- LOG MANAGEMENT ---
+#SBATCH --output=logs/slurm/%x-%A_%a.out # %x=job-name, %A=jobid, %a=taskid
+#SBATCH --error=logs/slurm/%x-%A_%a.err
+
+# --- RESOURCES PER TASK ---
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=24            # Number of CPU cores per task
+
+# --- EXPERIMENT GRID DEFINITION ---
+# (Based on config.yml: 1 model * 6 schemes = 6 jobs)
+# We run max 192 concurrent jobs
+#SBATCH --array=0-191%192
+
+# ================= ✧ SPECIFIC GRID DEFINITION ✧ =================
+# Models (Example, synchronize with config.yaml)
+MODELS=(
+    "Dr-BERT/DrBERT-7GB"
+    "camembert-base"
+)
+
+# Schemes (Example, synchronize with config.yaml)
+QUANT_SCHEMES=(
+    "FP32_Baseline"
+    "LSQ_E8W8A8"
+    "LSQ_E4W4A4"
+    "LSQ_E2W2A2"
+    "LSQ_E6W2A6"
+    "BitNet_E6W1.58A6"
+)
+
+# Datasets (Example, synchronize with config.yaml)
+DATASETS=(
+    "dr-bert/quaero/emea"
+    "dr-bert/quaero/medline"
+    "dr-bert/cas/pos"
+    "dr-bert/essai/pos"
+)
+
+# Alpha Groups to process per task
+ALPHA_GROUPS=(
+     "0.0"       # Group 1: alpha = 0.0
+     "0.1;0.9"   # Group 2: alpha = 0.1 AND 0.9 (sequential)
+     "0.3;0.7"   # Group 3: alpha = 0.3 AND 0.7 (sequential)
+     "0.5"       # Group 4: alpha = 0.5
+)
+
+# --- Build combinations (Model x Quant x Dataset x AlphaGroup) ---
+COMBOS=()
+for quant in "${QUANT_SCHEMES[@]}"; do
+    for dataset in "${DATASETS[@]}"; do
+        for model in "${MODELS[@]}"; do
+            for alpha_group in "${ALPHA_GROUPS[@]}"; do
+                # Format: "model_id|quant_name|dataset_key|alpha_group_str"
+                COMBOS+=("$model|$quant|$dataset|$alpha_group")
+            done
+        done
+    done
+done
+TOTAL_COMBOS=${#COMBOS[@]}
+echo "TOTAL COMBINATIONS (M x Q x D x AlphaGroup): $TOTAL_COMBOS"
+
+# --- Paramètres de l'Array SLURM ---
+# --- SLURM Array Parameters ---
+# JZ limit to ~12 parallel jobs per user for courtesy
+MAX_PARALLEL_JOBS=12
+# Define SLURM array dynamically
+#SBATCH --array=0-$((TOTAL_COMBOS-1))%${MAX_PARALLEL_JOBS}
+# ============================================================================
+
+set -x -e # Enables command display and stops on error
+
+# --- Check if task index is valid ---
+# If total jobs is less than index, this task has nothing to do.
+if (( SLURM_ARRAY_TASK_ID >= TOTAL_COMBOS )); then
+    echo "INFO: Task ID ${SLURM_ARRAY_TASK_ID} >= TOTAL_COMBOS ${TOTAL_COMBOS}. Exiting gracefully."
+    exit 0
+fi
+
+# --- Retrieve parameters specific to this task ---
+IFS='|' read -r MODEL_ID QUANT_NAME DATASET_KEY ALPHA_GROUP <<< "${COMBOS[$SLURM_ARRAY_TASK_ID]}"
+
+# Split dataset_key into id and config (handling 'default' case)
+if [[ $DATASET_KEY == */* ]]; then
+    DATASET_ID=$(dirname "$DATASET_KEY")
+    DATASET_CONFIG=$(basename "$DATASET_KEY")
+else
+    DATASET_ID=$DATASET_KEY
+    DATASET_CONFIG="default" # Assigner 'default' si pas de config spécifiée
+fi
+
+
+echo "======================================================"
+echo "✧ Task ${SLURM_ARRAY_TASK_ID}/${TOTAL_COMBOS} (Alpha Grouped)"
+echo "✧ Model        : ${MODEL_ID}"
+echo "✧ Quant.       : ${QUANT_NAME}"
+echo "✧ Dataset      : ${DATASET_ID} / ${DATASET_CONFIG}"
+echo "✧ Alpha Group  : ${ALPHA_GROUP}"
+echo "======================================================"
+
+# --- ENVIRONMENT MANAGEMENT (Standard Setup) ---
+# Offline Mode to avoid unexpected network access from compute nodes
+export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1 # Disables HF telemetry
+
+# Module loading and environment activation
+module purge
+module load arch/h100 miniforge/24.9.0
+cd ${WORK}/Quantization-Aware-Pre-Training # Ensure this is the correct project root path
+
+# Conda Activation & Isolation via PYTHONUSERBASE (Standard Setup)
+conda activate ./conda_envs/qapt_env # Path to your conda env
+export PYTHONUSERBASE=${WORK}/Quantization-Aware-Pre-Training/python_user_base # Path to your isolated pip base
+export PATH=${PYTHONUSERBASE}/bin:$PATH # Ensures pip-installed executables are found
+
+echo "✅ Environment ready."
+
+# --- PYTHON ORCHESTRATOR LAUNCH ---
+# Export variables for the Python script
+export MODEL_ID="$MODEL_ID"
+export QUANT_NAME="$QUANT_NAME"
+export DATASET_ID="$DATASET_ID"
+export DATASET_CONFIG="$DATASET_CONFIG"
+export ALPHA_GROUP="$ALPHA_GROUP"
+
+echo "🚀 Launching Python orchestrator (run_alpha_grouped_task_pipeline)..."
+srun poetry run python -m src.orchestrators.run_alpha_grouped_task_pipeline
+
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "⚠️ ERROR: Task ${SLURM_ARRAY_TASK_ID} failed (code $EXIT_CODE)."
+    # Potentially add a notification here if necessary
+fi
+echo "✅ Task ${SLURM_ARRAY_TASK_ID} (${MODEL_ID}/${QUANT_NAME}/${DATASET_KEY}/${ALPHA_GROUP}) completed."

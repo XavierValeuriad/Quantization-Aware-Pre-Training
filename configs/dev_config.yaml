@@ -1,0 +1,56 @@
+# ===================================================================
+# Main Configuration File v1.0
+#
+# Single source of truth for all experiment parameters.
+# ===================================================================
+
+# MANDATORY activation flag for override
+dev: true
+
+# --- Experiment Parameters ---
+experiment:
+  # The total compute budget (pre-training + fine-tuning) in number of steps. 
+  # This is the value that will be used for production runs on HPC.
+  total_steps_budget: 8
+
+evaluation_rigor:
+  confidence_level_sigma: 2   # 5σ the "scientific discovery" standard (Z-score).
+  # Relative error factor. k=0.05 => Tolerated error margin of 5% of the standard deviation.
+  relative_error_factor_k: 0.5       
+
+# --- Quantization Parameters ---
+# List of quantization schemas to test.
+# ew: embedding_weight, lw: linear_weight, la: linear_activation
+
+training:
+  # Number of checkpoints/logging/evaluation points distributed over the total duration of training.
+  num_monitoring_points: 120
+
+  # — Dataloading —
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 2
+
+# --- Quantization Schemas to Test ---
+quantization:
+ - name: "FP32_Baseline"
+   enabled: false # The base model, unquantized
+   precision: "fp32"
+
+ - name: "LSQ_E6W2A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 6 }
+   weight_quant: { algo: "LSQ", bits: 2 }
+   activation_quant: { algo: "LSQ", bits: 6}
+
+ - name: "BitNet_E6W1.58A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 6 }
+   weight_quant: { algo: "BitNet_b158" }
+   activation_quant: { algo: "BitNet_b158", bits: 6 }
+
+
+tokenization:
+  # In dev mode, we will only process the first 10,000 examples.
+  max_pretraining_samples: 100

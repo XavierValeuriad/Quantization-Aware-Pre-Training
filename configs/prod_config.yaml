@@ -1,0 +1,135 @@
+# ===================================================================
+# Main Configuration File v1.0
+#  production config
+# Single source of truth for all experiment parameters.
+# ===================================================================
+
+# --- Experiment Parameters ---
+experiment:
+  # The total compute budget (pre-training + fine-tuning) in number of steps.
+  # This is the value that will be used for production runs on HPC.
+  total_steps_budget: 30000
+
+  # The grid of "alpha" values to test.
+  # alpha = ratio of the budget allocated to adaptive pre-training.
+  alpha_sweep: [0.0, 0.1, 0.3, 0.5, 0.7, 0.9]
+
+  seed: 42
+
+evaluation_rigor:
+  confidence_level_sigma: 5   # 5σ the "scientific discovery" standard (Z-score).
+  # Relative error factor. k=0.05 => Tolerated error margin of 5% of the standard deviation.
+  relative_error_factor_k: 0.05  
+
+# --- Quantization Parameters ---
+# List of quantization schemas to test.
+# ew: embedding_weight, lw: linear_weight, la: linear_activation
+
+# --- Path Management ---
+
+# --- Assets: Base Models ---
+models:
+  - "camembert-base"
+  - "Dr-BERT/DrBERT-7GB"
+
+pretraining_datasets:
+  - id: "Dr-BERT/NACHOS" 
+    configs: ["documents"]  # We only want the 'documents' configuration
+    tokenizers:
+     - "camembert-base"
+     - "Dr-BERT/DrBERT-7GB"
+
+# --- Assets: Fine-Tuning Datasets (Evaluation) ---
+finetuning_datasets:
+
+  # == BIOMEDICAL BENCHMARKS ==
+  - { id: "Dr-BERT/QUAERO", configs: ["emea", "medline"], tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
+  - { id: "Dr-BERT/CAS", configs: ["pos"], tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
+  - { id: "Dr-BERT/ESSAI", configs: ["pos"], tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
+
+# --- Data Processing Parameters ---
+tokenization:
+  # null means the entire pre-training dataset will be processed.
+  max_pretraining_samples: null
+  max_parallel_cpu: 9
+
+# --- Training Parameters ---
+training:
+  # Number of checkpoints/logging/evaluation points distributed over the total duration of training.
+  num_monitoring_points: 120
+
+  # — Dataloading —
+  per_device_train_batch_size: 96
+  per_device_eval_batch_size: 192
+  gradient_accumulation_steps: 1
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+  remove_unused_columns: false
+
+  # — Optim / LR —
+  learning_rate: 5.0e-5
+  weight_decay: 0.01
+  adam_beta1: 0.9
+  adam_beta2: 0.98
+  max_grad_norm: 1.0
+  optim: "adamw_torch"
+  lr_scheduler_type: "linear"
+  warmup_steps: 0.1
+
+  # — Precision —
+  fp16: true
+
+  gradient_checkpointing: false
+
+# --- Quantization Schemas to Test ---
+quantization:
+ - name: "FP32_Baseline"
+   enabled: false # The base model, unquantized
+   precision: "fp32"
+
+# For Embedded
+
+ - name: "LSQ_E8W8A8"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 8}
+   weight_quant: { algo: "LSQ", bits: 8}
+   activation_quant: { algo: "LSQ", bits: 8}
+
+ - name: "LSQ_E4W4A4"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 4}
+   weight_quant: { algo: "LSQ", bits: 4}
+   activation_quant: { algo: "LSQ", bits: 4}
+
+ - name: "LSQ_E2W2A2"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 2}
+   weight_quant: { algo: "LSQ", bits: 2}
+   activation_quant: { algo: "LSQ+", bits: 2}
+
+ - name: "LSQ_E6W2A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 6 }
+   weight_quant: { algo: "LSQ", bits: 2 }
+   activation_quant: { algo: "LSQ", bits: 6}
+
+ - name: "BitNet_E6W1.58A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 6 }
+   weight_quant: { algo: "BitNet_b158" }
+   activation_quant: { algo: "BitNet_b158", bits: 6 }
+
+# --- Evaluation Parameters ---
+evaluation:
+  per_device_train_batch_size: 96
+  per_device_eval_batch_size: 192
+  use_bootstrap: false
+  
+carbon_tracker:
+  country_iso_code: FRA
+

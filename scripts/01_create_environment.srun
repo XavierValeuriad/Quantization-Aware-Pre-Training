@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+salloc --job-name=conda_build -A mwd@h100 -C h100 --partition=gpu_p6 --qos=qos_gpu_h100-dev --gres=gpu:1 --time=01:00:00 --ntasks=1 --cpus-per-task=8
+
+# Following the recommendations from the Jean-Zay documentation: http://www.idris.fr/jean-zay/gpu/jean-zay-gpu-python-env.html
+mv $HOME/.local $WORK
+mv $HOME/.conda $WORK
+
+module purge
+module load arch/h100
+module load miniforge/24.9.0
+
+cd ${WORK}/Quantization-Aware-Pre-Training
+export PATH=~/.local/bin:$PATH
+
+conda clean -a -y
+conda create -p ./conda_envs/qapt_env python=3.10.4
+
+
+export PYTHONUSERBASE=${WORK}/Quantization-Aware-Pre-Training/python_user_base
+
+pip install "poetry>=1.5"
+
+PROJECT_NAME=$(basename "$PWD")
+ENV_FOLDER="prod"
+DEV_CONFIG_FILE="configs/dev_config.yaml"
+if [ -f "$DEV_CONFIG_FILE" ]; then
+    if grep -qE "^\s*dev\s*:\s*true\s*$" "$DEV_CONFIG_FILE"; then
+        ENV_FOLDER="dev"
+    fi
+fi
+echo "Environment mode for cache: $ENV_FOLDER"
+
+if [ -n "${SCRATCH-}" ]; then
+    CACHE_ROOT="$SCRATCH/$ENV_FOLDER/$PROJECT_NAME/cache"
+    echo "HPC environment detected. Cache root: $CACHE_ROOT"
+else
+    PROJECT_PARENT_DIR=$(dirname "$PWD")
+    CACHE_ROOT="$PROJECT_PARENT_DIR/../SCRATCH/$ENV_FOLDER/$PROJECT_NAME/cache"
+    echo "Local environment detected. Cache root: $CACHE_ROOT"
+fi
+
+mkdir -p "$CACHE_ROOT"
+export PIP_CACHE_DIR="$CACHE_ROOT/pip"
+export POETRY_CACHE_DIR="$CACHE_ROOT/poetry"
+export POETRY_CONFIG_DIR="$CACHE_ROOT/poetry_config"
+
+poetry config virtualenvs.create false --local
+poetry install --no-interaction --no-root
+
+exit
