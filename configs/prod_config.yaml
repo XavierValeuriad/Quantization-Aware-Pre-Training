@@ -47,6 +47,24 @@ finetuning_datasets:
   - { id: "Dr-BERT/CAS", configs: ["pos"], tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
   - { id: "Dr-BERT/ESSAI", configs: ["pos"], tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
 
+  # -- FLUE (French Language Understanding Evaluation) --
+  # Source: FlauBERT Paper 
+  # Ce dataset agrège plusieurs tâches demandées :
+  # 1. XNLI (NLI) [cite: 1270, 25] -> config: 'xnli'
+  # 2. FrenchSeqEval (WSD Verbs) [cite: 369, 1284] -> config: 'fse' (FrenchSemEval)
+  # 3. Noun Sense Disambiguation  -> config: 'nsd'
+  # 4. PAWS-X (Paraphrasing) [cite: 1261] -> config: 'paws-x'
+  # 5. CLS (Classification) [cite: 1254] -> config: 'cls'
+  # - { id: "GETALP/flue", configs: ['XNLI', 'PAWS-X', 'CLS', 'WSD-V'], probe: true, tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
+  - { id: "GETALP/flue", configs: ['XNLI', 'PAWS-X'], probe: true, tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
+
+  # -- FraCaS (French Version) --
+  # Source: A French Version of the FraCaS Test Suite 
+  # Dataset d'inférence sémantique logique. 
+  # Note: Si l'ID HuggingFace n'est pas canonique, vérifier 'Loria/fracas_fr' ou le GitLab Inria.
+  - { id: "maximoss/fracas", configs: ["default"], probe: true, tokenizers: ["camembert-base", "Dr-BERT/DrBERT-7GB"] }
+
+
 # --- Data Processing Parameters ---
 tokenization:
   # null means the entire pre-training dataset will be processed.

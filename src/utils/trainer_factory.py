@@ -16,6 +16,7 @@ from src.utils.training_args_factory import create_training_arguments
 from src.utils.path_manager import get_raw_dataset_config_path, get_tokenized_dataset_path
 from src.tasks.base import BaseTaskSpecification
 from src.modeling.factory import apply_quantization_scheme
+from src.utils.statistics import determine_split_sizes, report_dataset_statistics
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -29,8 +30,7 @@ def _get_or_create_tokenized_dataset(
     dataset_info: ConfigObject,
     dataset_config_name: Optional[str],
     tokenizer: Any,
-    task_spec: BaseTaskSpecification,
-    max_steps: int,
+    task_spec: BaseTaskSpecification
 ) -> DatasetDict:
     """
     Loads or creates the tokenized dataset via JIT (Just-In-Time).
@@ -136,21 +136,61 @@ def _get_or_create_tokenized_dataset(
     else:
          final_tokenized_dataset = tokenized_dataset_mapped.select_columns(columns_to_keep)
 
-    is_eval_only = (max_steps == 0)
-
-    target_split_name = "test" if is_eval_only else "validation"
-
-    # Vérification immédiate de l'existence du split
-    if target_split_name not in final_tokenized_dataset:
-        available_splits = list(final_tokenized_dataset.keys())
-        error_msg = (
-            f"[{log_prefix}] ⛔ CRITICAL DATASET ERROR: Required split '{target_split_name}' "
-            f"is missing for context {'EVALUATION' if is_eval_only else 'FINE-TUNING'}. "
-            f"Available splits: {available_splits}. "
-            f"Strict Mode Enabled: No silent fallback allowed."
+    # ==================== ✧ STEP 4.5: STATISTICAL SPLITTING (JIT) ✧ ====================
+    # If the dataset is monolithic (train only), we apply scientific rigor.
+    if list(final_tokenized_dataset.keys()) == ['train']:
+        logging.info(f"  -> [JIT] Monolithic dataset '{dataset_name}' detected. Applying statistical splitting...")
+        
+        train_ds = final_tokenized_dataset['train']
+        num_total = len(train_ds)
+        rigor = config.evaluation_rigor
+        
+        # 1. Calculate sizes
+        n_train, n_val, n_test, is_sig = determine_split_sizes(
+            total_samples=num_total,
+            sigma=rigor.confidence_level_sigma,
+            relative_error=rigor.relative_error_factor_k,
+            fallback_ratios=rigor.small_dataset_fallback.to_dict()
         )
-        logging.error(error_msg)
-        raise ValueError(error_msg)
+        
+        logging.info(f"  -> [JIT] Strategy: {'Significant' if is_sig else 'Fallback'}. Targets: T={n_train}, V={n_val}, Test={n_test}")
+
+        if n_val > 0:
+            # 2. Apply splits (Fixed seed for cache reproducibility)
+            # First isolate Test (if any) from the rest (Train + Val)
+            if n_test > 0:
+                splits_test = train_ds.train_test_split(test_size=n_test, seed=config.experiment.seed)
+                test_dataset = splits_test['test']
+                remaining = splits_test['train']
+            else:
+                test_dataset = None
+                remaining = train_ds
+
+            # Isolate Validation from Train
+            splits_val = remaining.train_test_split(test_size=n_val, seed=config.experiment.seed)
+            val_dataset = splits_val['test']
+            final_train = splits_val['train']
+
+            # 3. Reconstruct DatasetDict
+            new_splits = {'train': final_train, 'validation': val_dataset}
+            if test_dataset:
+                new_splits['test'] = test_dataset
+            
+            final_tokenized_dataset = DatasetDict(new_splits)
+            
+            # 4. Statistical Reporting
+            real_counts = {k: len(v) for k, v in final_tokenized_dataset.items()}
+            report_dataset_statistics(
+                dataset_name=dataset_name,
+                config_name=config_name,
+                total_samples=num_total,
+                splits=real_counts,
+                target_sigma=rigor.confidence_level_sigma,
+                target_k=rigor.relative_error_factor_k
+            )
+        else:
+            logging.warning("  -> [JIT] Dataset too small to split. Keeping unique 'train' split.")
+    # ====================================================================================
 
     # 5. Save to cache
     try:
@@ -187,8 +227,7 @@ def create_trainer(
             dataset_info, 
             dataset_config_name,
             tokenizer, 
-            task_spec,
-            max_steps
+            task_spec
         )
     except Exception as e:
         logging.error(f"[{log_prefix}] ÉCHEC CRITIQUE JIT: {e}", exc_info=True)

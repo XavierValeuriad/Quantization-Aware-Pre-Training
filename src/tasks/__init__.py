@@ -16,6 +16,7 @@ from .factory import get_task_specification, TASK_REGISTRY
 # These lines are not strictly necessary if folders contain __init__.py,
 # but they make the intent more explicit.
 from . import drbenchmark
+from . import francophone
 
 # --- Export Control (Public Interface of 'tasks' module) ---
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "TASK_REGISTRY",
     # Sub-modules are accessible but not their contents directly
     "drbenchmark",
+    "francophone",
 ]

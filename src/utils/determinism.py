@@ -33,9 +33,9 @@ def set_absolute_determinism():
     # 4. OS-specific warning
     if sys.platform == "darwin":
         logging.warning(
-            "Exécution sur macOS ('darwin'). Le backend MPS de PyTorch ne garantit pas "
-            "le déterminisme pour toutes les opérations. La reproductibilité bit à bit "
-            "pourrait ne pas être atteinte sur cette plateforme."
+            "Running on macOS ('darwin'). The PyTorch MPS backend does not guarantee "
+            "determinism for all operations. Bit-wise reproducibility "
+            "may not be achieved on this platform."
         )
     else:
-        logging.info(f"Stabilité absolue activée. Graine aléatoire fixée à : {config.experiment.seed}")
+        logging.info(f"Absolute determinism enabled. Random seed set to: {config.experiment.seed}")

@@ -25,7 +25,7 @@ import torch.nn as nn
 import torch 
 
 from src.modeling.quantization import (
-    BaseQuantizer, LsqQuantizer, BinaryQuantizer, TernaryQuantizer,
+    BaseQuantizer, LsqQuantizer, LsqPlusQuantizer, BinaryQuantizer, TernaryQuantizer,
     BitNetQuantizer, QuantizeLinear, QuantizeEmbedding
 )
 
@@ -79,6 +79,14 @@ def create_quantizer(config: dict, target_dtype: torch.dtype) -> Optional[BaseQu
         
     elif algo == "Ternary":
         return TernaryQuantizer()
+    
+    elif algo == "LSQ+":
+        if bits is None:
+             raise ValueError("The LSQ+ algorithm requires a 'bits' parameter.")
+        # By default, LSQ+ uses asymmetry for activations (Config 4 from the paper)
+        # It can be controlled via the yaml config if needed (e.g., asymmetric: false)
+        asymmetric = config.get("asymmetric", True)
+        return LsqPlusQuantizer(num_bits=bits, asymmetric=asymmetric)
         
     elif algo == "Binary":
         return BinaryQuantizer()

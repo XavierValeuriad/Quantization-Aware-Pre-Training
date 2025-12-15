@@ -257,6 +257,131 @@ class BitNetQuantizer(BaseQuantizer):
 
         # Straight-Through Estimator (STE)
         return (x_dequant - x).detach() + x
+    
+
+class LsqPlusQuantizer(BaseQuantizer):
+    """
+    Implementation of LSQ+ (Learned Step Size Quantization + Learnable Offset).
+    Source: "LSQ+: Improving low-bit quantization through learnable offsets and better initialization"
+    Yash Bhalgat et al., CVPR 2020 Workshops.
+
+    Formulation (Eq. 2):
+        x_q = round(clamp((x - beta) / s, n, p))
+        x_hat = x_q * s + beta
+
+    Features:
+    - Learnable Offset (beta) to handle asymmetric activations (e.g., Swish).
+    - Learnable Scale (s) with Gradient Scaling.
+    - MSE Initialization (Eq. 8) on the first batch.
+    """
+    def __init__(self, num_bits: int, asymmetric: bool = True):
+        super().__init__(num_bits)
+        if num_bits <= 1:
+            raise ValueError("LSQ+ is designed for num_bits >= 2.")
+        
+        self.asymmetric = asymmetric
+        self.s = nn.Parameter(torch.ones(1))
+        self.beta = nn.Parameter(torch.zeros(1))
+        self.initialized = False
+
+    def _initialize_mse(self, x: torch.Tensor):
+        """
+        Initialization based on MSE minimization (Eq. 8).
+        """
+        # Detach x so this local optimization does not affect the main graph
+
+        x = x.detach()
+
+        # Quantization bounds
+        if self.asymmetric:
+            n_bound, p_bound = 0, 2**self.num_bits - 1
+        else:
+            n_bound, p_bound = -2**(self.num_bits - 1), 2**(self.num_bits - 1) - 1
+
+        # Starting heuristic: Min-Max
+        x_min, x_max = x.min(), x.max()
+
+        if self.asymmetric:
+            s_init = (x_max - x_min) / (p_bound - n_bound)
+            beta_init = x_min - n_bound * s_init
+        else:
+            s_init = 2 * x.abs().mean() / math.sqrt(p_bound)
+            beta_init = torch.tensor(0.0).to(x.device)
+
+        # Explicitly enable gradients for the local optimization loop
+        with torch.enable_grad():
+            s_opt = s_init.clone().detach().requires_grad_(True)
+            beta_opt = beta_init.clone().detach().requires_grad_(True)
+            optimizer = torch.optim.Adam([s_opt, beta_opt], lr=0.1)
+
+            for _ in range(100): 
+                optimizer.zero_grad()
+                
+                # Simulated Forward pass
+                x_shifted = x - beta_opt
+                x_scaled = x_shifted / (s_opt.abs() + 1e-8)
+                x_q = torch.clamp(round_pass(x_scaled), n_bound, p_bound)
+                x_hat = x_q * s_opt.abs() + beta_opt
+                
+                loss = torch.mean((x - x_hat)**2)
+                loss.backward()
+                optimizer.step()
+
+                # Light cleanup (Python ref counting is usually sufficient here)
+                del loss, x_shifted, x_scaled, x_q, x_hat
+            
+            # Copy results
+            self.s.data.copy_(s_opt.abs().detach())
+            self.beta.data.copy_(beta_opt.detach())
+            
+            # Aggressive cleanup for the MPS backend
+            del optimizer, s_opt, beta_opt
+
+            # Force Python Garbage Collector (cleans up cycles)
+            gc.collect()
+            
+            # Force PyTorch/MPS cache clearing
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            elif torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        logging.info(f"LSQ+ Init (MSE): s={self.s.item():.6f}, beta={self.beta.item():.6f}")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Data-Driven Initialization (once only)
+        if self.training and not self.initialized:
+            self._initialize_mse(x)
+            self.initialized = True
+
+        # Range definition (Qn, Qp)
+        if self.asymmetric:
+            # Config 4: Unsigned + Asymmetric (Standard for LSQ+ Activations)
+            n_bound, p_bound = 0, 2**self.num_bits - 1
+        else:
+            # Config 2/3: Signed
+            n_bound, p_bound = -2**(self.num_bits - 1), 2**(self.num_bits - 1) - 1
+
+        # Gradient Scaling (Eq. 3 & 4 via implicit STE for beta)
+        # g = 1 / sqrt(N * p)
+        g = 1.0 / math.sqrt(x.numel() * p_bound) if x.numel() * p_bound > 0 else 1.0
+        s = grad_scale(self.s, g)
+        beta = self.beta # Gradient scaling on beta is often omitted or set to 1 in practical implementations
+
+        # 1. Shift (Offset)
+        x_shifted = x - beta
+
+        # 2. Scale
+        x_scaled = x_shifted / (s.abs() + 1e-8)
+
+        # 3. Quantize (Round + Clamp)
+        x_q = torch.clamp(round_pass(x_scaled), n_bound, p_bound)
+
+        # 4. Dequantize + Unshift
+        x_hat = x_q * s.abs() + beta
+
+        return x_hat
+
 
 # ===================================================================
 # == SECTION 2: QUANTIZED LAYERS (PyTorch Wrappers)
@@ -290,4 +415,7 @@ class QuantizeEmbedding(nn.Embedding):
         quant_weight = self.weight_quantizer(self.weight) if self.weight_quantizer else self.weight
         return F.embedding(input, quant_weight, self.padding_idx, self.max_norm,
                            self.norm_type, self.scale_grad_by_freq, self.sparse)
+
+
+
 
