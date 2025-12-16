@@ -86,6 +86,19 @@ The experiment workflow is sequential. Execute the scripts in the numerical orde
 | **07** | `07_download_results.bash` | Sync | Aggregates metrics from distributed nodes/remote storage. | 
 | **08** | `08_generate_reports.bash` | Analysis | Generates LaTeX tables and visualization plots. | 
 
+### 🧬 Special Case: NACHOS Dataset Ingestion
+
+The **NACHOS** dataset serves as our primary pre-training corpus. Due to its distribution format (single monolithic text file >10GB) and specific artifacts (extremely long lines causing tokenizer OOM), we implement a dedicated two-stage ingestion pipeline **before** tokenization.
+
+
+**Workflow:**
+
+1.  **Sanitization (`scripts/utils/clean_source_text.py`):**
+    Scans the raw `DOCUMENT_BY_DOCUMENT.txt`. It detects lines exceeding `2000` characters (often OCR artifacts or non-textual dumps) and safely segments them. This step is crucial to prevent buffer overflows in the tokenizer's Rust backend.
+
+2.  **Structuring (`scripts/utils/make_dataset.py`):**
+    Converts the sanitized text into a sharded Hugging Face `DatasetDict` (Arrow format) and generates the required `dataset_configs.json` manifest. This aligns the raw text with our standardized multi-config loader.
+
 ### Example: Launching the Evaluation Array
 
 To launch the massive evaluation grid (Model × Quantization × Dataset):

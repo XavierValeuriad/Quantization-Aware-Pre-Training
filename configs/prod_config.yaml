@@ -131,16 +131,44 @@ quantization:
  - name: "LSQ_E6W2A6"
    enabled: true
    precision: "fp32"
-   embedding_quant: { algo: "LSQ", bits: 6 }
-   weight_quant: { algo: "LSQ", bits: 2 }
+   embedding_quant: { algo: "LSQ", bits: 6}
+   weight_quant: { algo: "LSQ", bits: 2}
    activation_quant: { algo: "LSQ", bits: 6}
+
+ - name: "LSQ_E6W2A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 4}
+   weight_quant: { algo: "LSQ", bits: 2}
+   activation_quant: { algo: "LSQ", bits: 4}
 
  - name: "BitNet_E6W1.58A6"
    enabled: true
    precision: "fp32"
-   embedding_quant: { algo: "LSQ", bits: 6 }
+   embedding_quant: null
    weight_quant: { algo: "BitNet_b158" }
-   activation_quant: { algo: "BitNet_b158", bits: 6 }
+   activation_quant: { algo: "BitNet_b158", bits: 8}
+
+ - name: "BitNet_E6W1.58A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 8}
+   weight_quant: { algo: "BitNet_b158" }
+   activation_quant: { algo: "BitNet_b158", bits: 8}
+
+ - name: "BitNet_E6W1.58A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 4}
+   weight_quant: { algo: "BitNet_b158" }
+   activation_quant: { algo: "BitNet_b158", bits: 4}
+
+ - name: "BitNet_E6W1.58A6"
+   enabled: true
+   precision: "fp32"
+   embedding_quant: { algo: "LSQ", bits: 2}
+   weight_quant: { algo: "BitNet_b158" }
+   activation_quant: { algo: "BitNet_b158", bits: 2}
 
 # --- Evaluation Parameters ---
 evaluation:
